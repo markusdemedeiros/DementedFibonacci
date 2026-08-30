@@ -209,8 +209,7 @@ theorem Collatz_of_IsTotal (s : CollatzRecursionScheme) (Ht : IsTotalFun s.asOpt
   intro n
   rcases h : n with (_|n)
   · exists 1
-  · apply collatzN_of_halts (n := ⟨n + 1, by grind⟩) ?_
-    simp_all
+  · apply collatzN_of_halts (n := ⟨n + 1, by grind⟩) (Ht _)
 
 theorem IsTotal_iff_Collatz (s : CollatzRecursionScheme) :
     IsTotalFun s.asOptFun ↔ CollatzConjecture :=
