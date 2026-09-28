@@ -2,227 +2,130 @@ module
 
 public import Mathlib.Data.PNat.Basic
 public import Mathlib.Data.Nat.Fib.Basic
+public import CollatzRecursionSchemes.Collatz
 
 set_option linter.style.header false
 
 @[expose] public section
 
-open Int
+open Int Option
 
 variable {α β : Type*}
 
+/-- A _Collatz Recursion Scheme_ is a tool for defining functions out of `ℕ+` which are correct
+if and only if the Collatz conjecture is true. -/
 structure CollatzRecursionScheme (α : Type*) where
-  /-- Base case value -/
+  /-- Base case value `F 1` -/
   one : α
   /-- Odd cases: compute `F n` from `n` and `F (3 * n + 1)` -/
   odd (n : ℕ+) (vrec : α) : α
   /-- Even cases: compute `F n` from `n` and `F (n / 2)` -/
   even (n : ℕ+) (vrec : α) : α
 
-/-- Predicate declaring when a collatz recursion scheme obeys the spec. -/
-@[grind cases]
-structure CollatzRecursionScheme.Valid (s : CollatzRecursionScheme α) (spec : ℕ+ → α) : Prop
-    where
-  ok_one : s.one = spec 1
-  ok_even (z : ℕ+) (vr : α) : z ≠ 1 → (z : ℕ) % 2 = 0 →
-    spec ((z : ℕ) / 2).toPNat' = vr → s.even z vr = spec z
-  ok_odd (z : ℕ+) (vr : α) : z ≠ 1 → (z : ℕ) % 2 ≠ 0 →
-    spec (3 * z + 1) = vr → s.odd z vr = spec z
-
-/-- The implementation as a total function: `none` on divergence, else the computed value. -/
+/-- Evaluate a [CollatzRecursionScheme]. This term equals `none` when the Collatz recursion does
+not terminate, and `some` when it does. -/
 def CollatzRecursionScheme.toFun (s : CollatzRecursionScheme α) (n : ℕ+) : Option α :=
   if n = 1 then some s.one
   else if (n : ℕ) % 2 = 0 then return s.even n (← s.toFun ((n : ℕ) / 2).toPNat')
   else return s.odd n (← s.toFun (3 * n + 1))
 partial_fixpoint
 
-theorem CollatzRecursionScheme.toFun_one (s : CollatzRecursionScheme α) :
-    s.toFun 1 = some s.one := by
+namespace CollatzRecursionScheme
+
+variable (s : CollatzRecursionScheme α)
+
+/-- A [CollatzRecursionScheme] is valid with respect to a function `ℕ+ → α` when the `one`, `odd`,
+and `even` cases obey the Collatz recurrence. -/
+@[grind cases]
+structure Valid (spec : ℕ+ → α) : Prop where
+  ok_one : s.one = spec 1
+  ok_even (z : ℕ+) (vr : α) : z ≠ 1 → (z : ℕ) % 2 = 0 →
+    spec ((z : ℕ) / 2).toPNat' = vr → s.even z vr = spec z
+  ok_odd (z : ℕ+) (vr : α) : z ≠ 1 → (z : ℕ) % 2 ≠ 0 →
+    spec (3 * z + 1) = vr → s.odd z vr = spec z
+
+theorem toFun_one : s.toFun 1 = some s.one := by
   rw [toFun.eq_def, if_pos rfl]
 
-theorem CollatzRecursionScheme.toFun_even (s : CollatzRecursionScheme α) {n : ℕ+} (h1 : n ≠ 1)
-    (he : (n : ℕ) % 2 = 0) : s.toFun n = (s.toFun ((n : ℕ) / 2).toPNat').map (s.even n) := by
+theorem toFun_even {n : ℕ+} (h1 : n ≠ 1) (he : (n : ℕ) % 2 = 0) :
+    s.toFun n = (s.toFun ((n : ℕ) / 2).toPNat').map (s.even n) := by
   rw [toFun.eq_def, if_neg h1, if_pos he]
   cases s.toFun ((n : ℕ) / 2).toPNat' <;> rfl
 
-theorem CollatzRecursionScheme.toFun_odd (s : CollatzRecursionScheme α) {n : ℕ+} (h1 : n ≠ 1)
-    (ho : (n : ℕ) % 2 ≠ 0) : s.toFun n = (s.toFun (3 * n + 1)).map (s.odd n) := by
+theorem toFun_odd {n : ℕ+} (h1 : n ≠ 1) (ho : (n : ℕ) % 2 ≠ 0) :
+    s.toFun n = (s.toFun (3 * n + 1)).map (s.odd n) := by
   rw [toFun.eq_def, if_neg h1, if_neg ho]
   cases s.toFun (3 * n + 1) <;> rfl
 
-/-- Correctness of a collatz recursion scheme: when `s.toFun` returns a value, it matches
-the specification function `spec`. -/
-theorem CollatzRecursionScheme.correct (s : CollatzRecursionScheme α) (spec : ℕ+ → α)
-    (Hv : s.Valid spec) : ∀ point value, s.toFun point = some value → value = spec point := by
+/-- For a valid [CollatzRecursionScheme] `s`, any value `s.toFun` returns agrees with `spec`. -/
+theorem correct (spec : ℕ+ → α) (Hv : s.Valid spec) :
+    ∀ point value, s.toFun point = some value → value = spec point := by
   apply CollatzRecursionScheme.toFun.partial_correctness s
   intro candidate ih point value hsome
   split_ifs at hsome with h1 h2
-  · -- base case: point = 1
-    subst h1
-    simp only [Option.some.injEq] at hsome
-    rw [← hsome]; exact Hv.ok_one
-  · -- even case
-    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hsome
-    obtain ⟨w, hw, hval⟩ := hsome
-    rw [Option.pure_def, Option.some.injEq] at hval
-    rw [← hval]
-    exact Hv.ok_even point w h1 h2 (ih _ _ hw).symm
-  · -- odd case
-    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hsome
-    obtain ⟨w, hw, hval⟩ := hsome
-    rw [Option.pure_def, Option.some.injEq] at hval
-    rw [← hval]
-    exact Hv.ok_odd point w h1 h2 (ih _ _ hw).symm
+  · grind
+  · simp only [bind_eq_bind, bind_eq_some_iff] at hsome
+    grind
+  · simp only [bind_eq_bind, bind_eq_some_iff] at hsome
+    grind
 
-def IsTotalFun (f : α → Option β) : Prop := ∀ a, (f a).isSome
+/-- For a valid [CollatzRecursionScheme] `s`, `s.toFun` agrees with the spec everywhere if and only
+if it is total, ie. returns `some` everywhere. -/
+theorem toFun_eq_spec_iff {spec : ℕ+ → α} (Hv : s.Valid spec) :
+    s.toFun = some ∘ spec ↔ IsTotalFun s.toFun := by
+  refine ⟨fun h n => ?_, fun h => funext fun n => ?_⟩
+  · simp [show s.toFun n = (some ∘ spec) n from congrFun h n]
+  · obtain ⟨p, hp⟩ := isSome_iff_exists.mp (h n)
+    simp [hp, s.correct spec Hv n p hp]
 
-theorem CollatzRecursionScheme.toFun_eq_spec_iff (s : CollatzRecursionScheme α)
-    {spec : ℕ+ → α} (Hv : s.Valid spec) : s.toFun = some ∘ spec ↔ IsTotalFun s.toFun := by
-  constructor
-  · intro h n
-    rw [show s.toFun n = (some ∘ spec) n from congrFun h n]
-    rfl
-  · intro h
-    funext n
-    obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp (h n)
-    have := s.correct spec Hv n p hp
-    simp [hp, this]
-
--- Now: Characterize the totality of the scheme
-
-def collatz (n : ℕ) : ℕ :=
-  -- Make the junk n=0 case also just return 1
-  if n = 0 then 1
-  else if n = 1 then 1
-  else if n % 2 = 0 then n / 2
-  else 3 * n + 1
-
-def CollatzN : ℕ → ℕ → Option ℕ
-  | _, 1 => some 1
-  | 0, _ => none
-  | k+1, n => CollatzN k (collatz n)
-
-def CollatzConjecture : Prop := ∀ n : ℕ, ∃ fuel : ℕ, CollatzN fuel n = some 1
-
-inductive Halts : ℕ+ → Prop where
-  | one : Halts 1
-  | even {n : ℕ+} : n ≠ 1 → (n : ℕ) % 2 = 0 → Halts ((n : ℕ) / 2).toPNat' → Halts n
-  | odd {n : ℕ+} : n ≠ 1 → (n : ℕ) % 2 ≠ 0 → Halts (3 * n + 1) → Halts n
-
-theorem Halts.toFun_isSome (s : CollatzRecursionScheme α) {n : ℕ+} (h : Halts n) :
-    (s.toFun n).isSome := by
+theorem toFun_eq_some_of_halts {n : ℕ+} (h : Halts n) : (s.toFun n).isSome := by
   induction h with
-  | one => rw [CollatzRecursionScheme.toFun.eq_def]; simp
-  | @even n hne hev _ ih =>
-    rw [CollatzRecursionScheme.toFun.eq_def]
-    simp only [if_neg hne, if_pos hev]
-    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp ih
-    simp [hv]
-  | @odd n hne hodd _ ih =>
-    rw [CollatzRecursionScheme.toFun.eq_def]
-    simp only [if_neg hne, if_neg hodd]
-    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp ih
-    simp [hv]
+  | one => simp [toFun.eq_def]
+  | even hne hev _ ih =>
+    obtain ⟨v, hv⟩ := isSome_iff_exists.mp ih
+    rw [toFun.eq_def]
+    simp [if_neg hne, if_pos hev, hv]
+  | odd hne hodd _ ih =>
+    obtain ⟨v, hv⟩ := isSome_iff_exists.mp ih
+    rw [toFun.eq_def]
+    simp [if_neg hne, if_neg hodd, hv]
 
-theorem CollatzRecursionScheme.halts_of_eq_some (s : CollatzRecursionScheme α) :
-    ∀ n r, s.toFun n = some r → Halts n := by
+theorem halts_of_toFun_eq_some : ∀ n r, s.toFun n = some r → Halts n := by
   apply CollatzRecursionScheme.toFun.partial_correctness s
   intro g ih n r hbody
   split_ifs at hbody with h1 h2
-  · subst h1; exact Halts.one
-  · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hbody
-    obtain ⟨w, hw, _⟩ := hbody
-    exact Halts.even h1 h2 (ih _ _ hw)
-  · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hbody
-    obtain ⟨w, hw, _⟩ := hbody
-    exact Halts.odd h1 h2 (ih _ _ hw)
+  · grind
+  · simp only [bind_eq_bind, bind_eq_some_iff] at hbody
+    grind
+  · simp only [bind_eq_bind, bind_eq_some_iff] at hbody
+    grind
 
-theorem CollatzRecursionScheme.isTotal_iff_halts (s : CollatzRecursionScheme α) :
-    IsTotalFun s.toFun ↔ ∀ n, Halts n := by
-  constructor
-  · intro h n
-    obtain ⟨r, hr⟩ := Option.isSome_iff_exists.mp (h n)
-    exact s.halts_of_eq_some n r hr
-  · intro h n
-    exact (h n).toFun_isSome s
+/-- Totality of `s.toFun` is equivalent to halting for all `n`. -/
+theorem isTotal_iff_halts : IsTotalFun s.toFun ↔ ∀ n, Halts n := by
+  refine ⟨fun h n => ?_, fun h n => ?_⟩
+  · obtain ⟨r, hr⟩ := isSome_iff_exists.mp (h n)
+    exact s.halts_of_toFun_eq_some n r hr
+  · exact s.toFun_eq_some_of_halts (h n)
 
-theorem CollatzN_step {fuel : ℕ} {n : ℕ} (h : n ≠ 1) :
-    CollatzN (fuel + 1) n = CollatzN fuel (collatz n) := by
-  conv_lhs => unfold CollatzN
-  split <;> simp_all
-
-theorem collatz_coe_even {n : ℕ+} (hne : n ≠ 1) (hev : (n : ℕ) % 2 = 0) :
-    collatz (n : ℕ) = (((n : ℕ) / 2).toPNat' : ℕ) := by
-  have hn1 : (n : ℕ) ≠ 1 := by simpa using hne
-  have hpos : 0 < (n : ℕ) / 2 := by have := n.pos; omega
-  rw [collatz, if_neg hn1, if_pos hev, PNat.toPNat'_coe hpos]
-  grind
-
-theorem collatz_coe_odd {n : ℕ+} (hne : n ≠ 1) (hodd : (n : ℕ) % 2 ≠ 0) :
-    collatz (n : ℕ) = ((3 * n + 1 : ℕ+) : ℕ) := by
-  have hn1 : (n : ℕ) ≠ 1 := by simpa using hne
-  simp only [collatz, if_neg hn1, if_neg hodd]
-  push_cast
-  grind
-
-theorem Halts_of_collatzN : ∀ (fuel : ℕ) (n : ℕ+), CollatzN fuel (n : ℕ) = some 1 → Halts n := by
-  intro fuel
-  induction fuel with
-  | zero =>
-    intro n h
-    unfold CollatzN at h
-    split at h <;>
-      first
-      | (rename_i heq; exact (by exact_mod_cast heq : n = 1) ▸ Halts.one)
-      | simp_all
-  | succ k ih =>
-    intro n h
-    by_cases h1 : n = 1
-    · exact h1 ▸ Halts.one
-    · have hn1 : (n : ℕ) ≠ 1 := by simpa using h1
-      rw [CollatzN_step hn1] at h
-      by_cases hev : (n : ℕ) % 2 = 0
-      · rw [collatz_coe_even h1 hev] at h
-        exact Halts.even h1 hev (ih _ h)
-      · rw [collatz_coe_odd h1 hev] at h
-        exact Halts.odd h1 hev (ih _ h)
-
-theorem collatzN_of_halts {n : ℕ+} (h : Halts n) : ∃ fuel, CollatzN fuel (n : ℕ) = some 1 := by
-  induction h with
-  | one => exact ⟨0, by simp [CollatzN]⟩
-  | @even n hne hev _ ih =>
-    obtain ⟨fuel, hfuel⟩ := ih
-    refine ⟨fuel + 1, ?_⟩
-    rw [CollatzN_step (by simpa using hne), collatz_coe_even hne hev]
-    exact hfuel
-  | @odd n hne hodd _ ih =>
-    obtain ⟨fuel, hfuel⟩ := ih
-    refine ⟨fuel + 1, ?_⟩
-    rw [CollatzN_step (by simpa using hne), collatz_coe_odd hne hodd]
-    exact hfuel
-
-theorem IsTotal_of_Collatz (s : CollatzRecursionScheme α) (Hc : CollatzConjecture) :
-    IsTotalFun s.toFun := by
+/-- Totality of `s.toFun` is equivalent to the Collatz conjecture. -/
+theorem isTotal_iff_Collatz : IsTotalFun s.toFun ↔ CollatzConjecture := by
   rw [s.isTotal_iff_halts]
-  intro n
-  obtain ⟨fuel, hfuel⟩ := Hc n
-  exact Halts_of_collatzN fuel n hfuel
+  refine ⟨fun Ht n => ?_, fun Hc n => ?_⟩
+  · rcases h : n with (_|n)
+    · exists 1
+    · apply collatzN_of_halts (n := ⟨n + 1, by grind⟩) (Ht _)
+  · obtain ⟨fuel, hfuel⟩ := Hc n
+    exact Halts_of_collatzN fuel n hfuel
 
-theorem Collatz_of_IsTotal (s : CollatzRecursionScheme α) (Ht : IsTotalFun s.toFun) :
-    CollatzConjecture := by
-  rw [s.isTotal_iff_halts] at Ht
-  intro n
-  rcases h : n with (_|n)
-  · exists 1
-  · apply collatzN_of_halts (n := ⟨n + 1, by grind⟩) (Ht _)
+/-- Correctness of `s.toFun` is equivalent to the Collatz conjecture. -/
+theorem toFun_eq_spec_iff_collatz {spec : ℕ+ → α} (Hv : s.Valid spec) :
+    s.toFun = some ∘ spec ↔ CollatzConjecture :=
+  (s.toFun_eq_spec_iff Hv).trans (isTotal_iff_Collatz s)
 
-theorem IsTotal_iff_Collatz (s : CollatzRecursionScheme α) :
-    IsTotalFun s.toFun ↔ CollatzConjecture :=
-  ⟨Collatz_of_IsTotal s, IsTotal_of_Collatz s⟩
+end CollatzRecursionScheme
 
-theorem CollatzRecursionScheme.toFun_eq_spec_iff_collatz (s : CollatzRecursionScheme α)
-    {spec : ℕ+ → α} (Hv : s.Valid spec) : s.toFun = some ∘ spec ↔ CollatzConjecture :=
-  (s.toFun_eq_spec_iff Hv).trans (IsTotal_iff_Collatz s)
+
+section Example
 
 /--
 Collatz recursion scheme for the simple arithmetic sequence
@@ -262,19 +165,16 @@ theorem ArthmeticCollatzScheme_Valid :
   ok_one := by decide
   ok_even z vr := by
     rintro hne hev rfl
-    have hn1 : (z : ℕ) ≠ 1 := by simpa using hne
-    have := z.pos
-    apply PNat.coe_injective
     simp only [ArthmeticCollatzScheme, ArthmeticCollatzScheme.spec]
+    apply PNat.coe_injective
     push_cast [Nat.toPNat'_coe]
-    split_ifs <;> omega
+    grind [z.pos]
   ok_odd z vr := by
     rintro hne hev rfl
-    have := z.pos
     apply PNat.coe_injective
     simp only [ArthmeticCollatzScheme, ArthmeticCollatzScheme.spec]
     push_cast [Nat.toPNat'_coe]
-    split_ifs <;> omega
+    grind
 
 def testSequenceSegment [DecidableEq β] (l u : Nat) (s₁ s₂ : ℕ+ → β) : IO Unit := do
   for i in [l:u] do
@@ -290,5 +190,7 @@ def testSequenceSegment [DecidableEq β] (l u : Nat) (s₁ s₂ : ℕ+ → β) :
 example (Hc : CollatzConjecture) :
     ArthmeticCollatzScheme.toFun = some ∘ ArthmeticCollatzScheme.spec :=
   (ArthmeticCollatzScheme.toFun_eq_spec_iff_collatz ArthmeticCollatzScheme_Valid).mpr Hc
+
+end Example
 
 end

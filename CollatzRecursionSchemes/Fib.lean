@@ -403,7 +403,7 @@ theorem fibRun_eq_none_of_not_halts {n : ℕ+} (h : ¬Halts n) : fibRun n = none
 
 theorem toFun_eq_none_of_not_halts {α : Type*} (s : CollatzRecursionScheme α) {n : ℕ+}
     (h : ¬Halts n) : s.toFun n = none :=
-  Option.eq_none_iff_forall_ne_some.mpr fun v hv => h (s.halts_of_eq_some n v hv)
+  Option.eq_none_iff_forall_ne_some.mpr fun v hv => h (s.halts_of_toFun_eq_some n v hv)
 
 theorem fibRun_eq_toFun (n : ℕ+) : fibRun n = Real.fibScheme.toFun n := by
   by_cases h : Halts n
