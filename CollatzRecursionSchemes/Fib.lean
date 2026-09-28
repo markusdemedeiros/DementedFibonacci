@@ -221,69 +221,57 @@ theorem fibScheme_valid : fibScheme.Valid (fun n => (Nat.fib n : ℝ)) where
 end Real
 
 def fibEven : Exp :=
-  -- Index helpers
-  let toNum m := m + 2
-  let toArg m := m - 2
-  let div2 := (· / 2) ∘ toNum
-  let pow := Int.toNat ∘ div2
-  -- The program
-  exp% (φ ^ pow + (1 - φ) ^ pow) * rec (toArg ∘ div2)
+  exp% (share(share(φ) ^ .div2) + (1 - share(φ)) ^ .div2) * rec .toArgDiv2
 
 def fibOdd : Exp :=
-  -- Index helpers
-  let toNum m := m + 2
-  let toArg m := m - 2
-  let trp1 := (· * 3 + 1) ∘ toNum
-  let pow := Int.toNat ∘ trp1
-  let two (_ : ℤ) := 2
-  -- The program
-  let G := exp% φ ^ pow - φ * rec (toArg ∘ trp1)
-  let D := exp% √(25 * G ^ two - 20) / 50
+  let G := exp% share(share(share(φ) ^ .trp1) - share(φ) * rec .toArgTrp1)
+  let D := exp% share(√(25 * G ^ .two - 20) / 50)
   exp% ∛(G / 10 + D) + ∛(G / 10 - D)
 
 def fibProg : Exp := exp%
-  js (jpe 0 1) (jpe fibEven fibOdd)
+  share(js (jpe 0 1) (jpe fibEven fibOdd))
 
 noncomputable def fibRun (n : ℕ) : Option ℝ := run fibProg (n - 2)
 
 theorem fibRun_zero : fibRun 0 = some 0 := by
   simp only [fibRun, run]
-  change (denote fibProg (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))) _ :
-    Option ℝ) = _
-  simp (disch := decide) only [denote_bpos_of_neg, denote_beven_of_even, denote_ofRat,
-    Denotable.ofRat_real, Rat.cast_zero]
+  change (denote fibProg (.Share (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))))
+    _ : Option ℝ) = _
+  simp (disch := decide) only [denote_share, denote_bpos_of_neg, denote_beven_of_even, denote_ofRat,
+    Denotable.ofRat_real, Rat.cast_zero, Option.bind_some, Denotable.memo_real]
 
 theorem fibRun_one : fibRun 1 = some 1 := by
   simp only [fibRun, run]
-  change (denote fibProg (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))) _ :
-    Option ℝ) = _
-  simp (disch := decide) only [denote_bpos_of_neg, denote_beven_of_odd, denote_ofRat,
-    Denotable.ofRat_real, Rat.cast_one]
+  change (denote fibProg (.Share (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))))
+    _ : Option ℝ) = _
+  simp (disch := decide) only [denote_share, denote_bpos_of_neg, denote_beven_of_odd, denote_ofRat,
+    Denotable.ofRat_real, Rat.cast_one, Option.bind_some, Denotable.memo_real]
 
 theorem fibRun_even (n : ℕ) (hn : 0 < n) (he : n % 2 = 0) :
     fibRun n = (fibRun (n / 2)).map (Real.fibRecEven · n) := by
   simp only [fibRun, run]
-  change (denote fibProg (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))) _ :
-    Option ℝ) = _
+  change (denote fibProg (.Share (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))))
+    _ : Option ℝ) = _
   have e : ((n : ℤ) - 2 + 2) / 2 = ((n / 2 : ℕ) : ℤ) := by omega
   simp (disch := omega) only [denote_bpos_of_nonneg, denote_beven_of_even, fibEven, denote_mul,
     denote_add, denote_toThePowerOf, denote_φ, denote_ofRat, denote_neg, denote_recurse,
-    Option.bind_some, Function.comp_apply, e, Int.toNat_natCast]
+    Option.bind_some, AExp.eval, denote_share, e, Int.toNat_natCast]
   cases (denote fibProg fibProg (((n / 2 : ℕ) : ℤ) - 2) : Option ℝ) <;>
     simp only [Option.bind_some, Option.bind_none, Option.map_some, Option.map_none,
-      Real.fibRecEven, Denotable.ofRat_real, Denotable.φ_real, Rat.cast_one, sub_eq_add_neg]
+      Real.fibRecEven, Denotable.ofRat_real, Denotable.memo_real, Denotable.φ_real, Rat.cast_one,
+      sub_eq_add_neg]
 
 theorem fibRun_odd (n : ℕ) (hn : 1 < n) (ho : n % 2 = 1) :
     fibRun n = (fibRun (3 * n + 1)).map (Real.fibRecOdd · n) := by
   simp only [fibRun, run]
-  change (denote fibProg (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))) _ :
-    Option ℝ) = _
+  change (denote fibProg (.Share (.Bpos (.Beven fibEven fibOdd) (.Beven (.OfRat 0) (.OfRat 1))))
+    _ : Option ℝ) = _
   have e : ((n : ℤ) - 2 + 2) * 3 + 1 = ((3 * n + 1 : ℕ) : ℤ) := by push_cast; ring
   rcases hrec : (denote fibProg fibProg (((3 * n + 1 : ℕ) : ℤ) - 2) : Option ℝ) with _ | v <;>
     simp (disch := omega) only [denote_bpos_of_nonneg, denote_beven_of_odd, fibOdd, denote_mul,
       denote_add, denote_toThePowerOf, denote_φ, denote_neg, denote_recurse,
       denote_sqrt, denote_cubert, denote_ofRat, Option.bind_some, Option.bind_none,
-      Option.map_some, Option.map_none, Function.comp_apply, e, Int.toNat_natCast, hrec]
+      Option.map_some, Option.map_none, AExp.eval, denote_share, e, Int.toNat_natCast, hrec]
   simp [Real.fibRecOdd, div_eq_mul_inv, sub_eq_add_neg]
 
 macro "step_base" : tactic => `(tactic| first | rw [fibRun_zero] | rw [fibRun_one])
@@ -350,7 +338,8 @@ def calls : Exp → ℤ → List ℤ
   | .Bpos enn eneg, n => if 0 ≤ n then calls enn n else calls eneg n
   | .Beven eeven eodd, n => if n % 2 = 0 then calls eeven n else calls eodd n
   | .φ, _ => []
-  | .Recurse f, n => [f n]
+  | .Recurse f, n => [f.eval n]
+  | .Share e, n => calls e n
 
 def HaltsAt (m : ℤ) : Prop := ∃ fuel, CollatzN fuel (m + 2).toNat = some 1
 
@@ -363,7 +352,7 @@ theorem haltsAt_of_neg {m : ℤ} (hm : m < 0) : HaltsAt m := by
 theorem haltsAt_of_calls {m : ℤ} (h : ∀ k ∈ calls fibProg m, HaltsAt k) : HaltsAt m := by
   by_cases hm : m < 0
   · exact haltsAt_of_neg hm
-  simp only [fibProg, fibEven, fibOdd, calls, not_lt.mp hm, ↓reduceIte, Function.comp_apply,
+  simp only [fibProg, fibEven, fibOdd, calls, not_lt.mp hm, ↓reduceIte, AExp.eval,
     List.append_nil, List.nil_append, List.cons_append] at h
   split at h
   · obtain ⟨k, H⟩ := h _ List.mem_cons_self
@@ -383,7 +372,7 @@ theorem calls_haltsAt_of_denote_eq_some {e : Exp} {m : ℤ} {v : ℝ}
     · cases h₂ : denote e₂ n
       · grind
       · grind [calls]
-  | Neg e | ToThePowerOf e _ | Sqrt e | Cubert e =>
+  | Neg e | ToThePowerOf e _ | Sqrt e | Cubert e | Share e =>
     cases h₁ : denote e n
     · grind
     · grind [calls]

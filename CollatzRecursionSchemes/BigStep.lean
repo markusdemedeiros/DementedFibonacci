@@ -32,35 +32,57 @@ theorem cbrt_le_iff {a x : ℝ} : cbrt x ≤ a ↔ x ≤ a ^ 3 := by
 
 end Real
 
+inductive AExp where
+  | div2
+  | toArgDiv2
+  | trp1
+  | toArgTrp1
+  | two
+  deriving DecidableEq, Hashable, Repr
+
+@[simp] def AExp.eval : AExp → ℤ → ℤ
+  | div2, m => (m + 2) / 2
+  | toArgDiv2, m => (m + 2) / 2 - 2
+  | trp1, m => (m + 2) * 3 + 1
+  | toArgTrp1, m => (m + 2) * 3 + 1 - 2
+  | two, _ => 2
+
+instance : Hashable ℚ := ⟨fun q => mixHash (hash q.num) (hash q.den)⟩
+
 inductive Exp where
   | Add (e₁ e₂ : Exp)
   | Neg (e : Exp)
   | Mul (e₁ e₂ : Exp)
   | OfRat (q : ℚ)
-  | ToThePowerOf (e : Exp) (arg : ℤ → ℕ)
+  | ToThePowerOf (e : Exp) (arg : AExp)
   | Sqrt (e : Exp)
   | Cubert (e : Exp) -- Everybody loves Cubert :)
   | Bpos (enn eneg : Exp)
   | Beven (eeven eodd : Exp)
   | φ
-  | Recurse (f : ℤ → ℤ)
+  | Recurse (f : AExp)
+  | Share (e : Exp)
+  deriving DecidableEq, Hashable
 
 class Denotable (α : Type*) extends Add α, Neg α, Mul α, Pow α ℕ where
   ofRat : ℚ → α
   sqrt : α → α
   cbrt : α → α
   φ : α
+  memo : α → α
 
 noncomputable instance : Denotable ℝ where
   ofRat q := q
   sqrt := Real.sqrt
   cbrt := Real.cbrt
   φ := Real.goldenRatio
+  memo x := x
 
 @[simp] theorem Denotable.ofRat_real (q : ℚ) : (Denotable.ofRat q : ℝ) = q := rfl
 @[simp] theorem Denotable.sqrt_real (x : ℝ) : Denotable.sqrt x = √x := rfl
 @[simp] theorem Denotable.cbrt_real (x : ℝ) : Denotable.cbrt x = Real.cbrt x := rfl
 @[simp] theorem Denotable.φ_real : (Denotable.φ : ℝ) = Real.goldenRatio := rfl
+@[simp] theorem Denotable.memo_real (x : ℝ) : Denotable.memo x = x := rfl
 
 variable {α β : Type*} [Denotable α] [Denotable β]
 
@@ -81,7 +103,7 @@ def denote (body e : Exp) (n : ℤ) : Option α :=
     return Denotable.ofRat q
   | .ToThePowerOf e arg => do
     let v ← denote body e n
-    return v ^ (arg n)
+    return v ^ (arg.eval n).toNat
   | .Sqrt e => do
     let v ← denote body e n
     return Denotable.sqrt v
@@ -95,7 +117,10 @@ def denote (body e : Exp) (n : ℤ) : Option α :=
   | .φ => do
     return Denotable.φ
   | .Recurse arg =>
-    denote body body (arg n)
+    denote body body (arg.eval n)
+  | .Share e => do
+    let v ← denote body e n
+    return Denotable.memo v
 partial_fixpoint
 
 def run (body : Exp) (n : ℤ) : Option α :=
@@ -120,9 +145,9 @@ variable (body : Exp) (n : ℤ)
     (denote body (.OfRat q) n : Option α) = some (Denotable.ofRat q) := by
   rw [denote]; rfl
 
-@[simp] theorem denote_toThePowerOf (e : Exp) (f : ℤ → ℕ) :
+@[simp] theorem denote_toThePowerOf (e : Exp) (f : AExp) :
     (denote body (.ToThePowerOf e f) n : Option α) =
-      (denote body e n).bind fun v => some (v ^ f n) := by
+      (denote body e n).bind fun v => some (v ^ (f.eval n).toNat) := by
   rw [denote]; rfl
 
 @[simp] theorem denote_sqrt (e : Exp) :
@@ -154,9 +179,14 @@ variable (body : Exp) (n : ℤ)
 @[simp] theorem denote_φ : (denote body .φ n : Option α) = some Denotable.φ := by
   rw [denote]; rfl
 
-@[simp] theorem denote_recurse (f : ℤ → ℤ) :
-    (denote body (.Recurse f) n : Option α) = denote body body (f n) := by
+@[simp] theorem denote_recurse (f : AExp) :
+    (denote body (.Recurse f) n : Option α) = denote body body (f.eval n) := by
   rw [denote]
+
+@[simp] theorem denote_share (e : Exp) :
+    (denote body (.Share e) n : Option α) =
+      (denote body e n).bind fun v => some (Denotable.memo v) := by
+  rw [denote]; rfl
 
 end denote_lemmas
 
@@ -169,6 +199,7 @@ structure Denotable.Rel (R : α → β → Prop) : Prop where
   sqrt {a x} : R a x → R (sqrt a) (sqrt x)
   cbrt {a x} : R a x → R (cbrt a) (cbrt x)
   φ : R φ φ
+  memo {a x} : R a x → R (memo a) (memo x)
 
 theorem Denotable.Rel.flip {R : α → β → Prop} (hR : Rel R) : Rel (flip R) where
   add := hR.add
@@ -179,6 +210,7 @@ theorem Denotable.Rel.flip {R : α → β → Prop} (hR : Rel R) : Rel (flip R) 
   sqrt := hR.sqrt
   cbrt := hR.cbrt
   φ := hR.φ
+  memo := hR.memo
 
 theorem Denotable.Rel.denote {R : α → β → Prop} (hR : Rel R) {body e : Exp} {n : ℤ} {a : α}
     (h : denote body e n = some a) : ∃ x : β, denote body e n = some x ∧ R a x := by
@@ -241,6 +273,11 @@ theorem Denotable.Rel.denote {R : α → β → Prop} (hR : Rel R) {body e : Exp
   | Recurse f =>
     obtain ⟨x, hx, r⟩ := IH _ _ _ h
     exact ⟨x, by rwa [denote_recurse], r⟩
+  | Share e =>
+    simp only [bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at h
+    obtain ⟨a₁, h₁, rfl⟩ := h
+    obtain ⟨x₁, hx₁, r₁⟩ := IH _ _ _ h₁
+    exact ⟨_, by simp [hx₁], hR.memo r₁⟩
 
 declare_syntax_cat exp
 
@@ -256,6 +293,7 @@ syntax:75 exp:76 " ^ " term:max : exp
 syntax:max "√" exp:max : exp
 syntax:max "∛" exp:max : exp
 syntax:max "rec " term:max : exp
+syntax:max "share(" exp ")" : exp
 syntax:lead ident exp:max exp:max : exp
 
 syntax "exp(" exp ")" : term
@@ -275,6 +313,7 @@ macro_rules
   | `(exp(√$e)) => `(Exp.Sqrt exp($e))
   | `(exp(∛$e)) => `(Exp.Cubert exp($e))
   | `(exp(rec $f)) => `(Exp.Recurse $f)
+  | `(exp(share($e))) => `(Exp.Share exp($e))
   | `(exp($j:ident $e₁ $e₂)) =>
     match j.getId with
     | `jns => `(Exp.Bpos exp($e₁) exp($e₂))

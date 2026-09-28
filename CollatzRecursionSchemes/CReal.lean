@@ -65,6 +65,17 @@ def cbrt (a : CReal) : CReal :=
 
 def φ : CReal := mul (ofRat (1 / 2)) (add (ofRat 1) (sqrt (ofRat 5)))
 
+def memoStep : ℕ := 16
+
+def memoSize : ℕ := 512
+
+def memo (a : CReal) : CReal :=
+  let t : Array (Thunk ℚ) :=
+    Array.ofFn (n := memoSize) fun i => Thunk.mk fun _ => a.approx (memoStep * (i + 1))
+  ⟨fun k => match t[k / memoStep]? with
+    | some th => th.get
+    | none => a.approx k⟩
+
 instance : Denotable CReal where
   add := add
   neg := neg
@@ -74,6 +85,7 @@ instance : Denotable CReal where
   sqrt := sqrt
   cbrt := cbrt
   φ := φ
+  memo := memo
 
 theorem Tracks.abs_le_bound {a : CReal} {x : ℝ} (h : a.Tracks x) : |x| ≤ a.bound := by
   have h0 : |(a.approx 0 : ℝ) - x| ≤ 1 := by simpa using h 0
@@ -406,6 +418,17 @@ theorem Tracks.cbrt {a : CReal} {x : ℝ} (ha : a.Tracks x) : a.cbrt.Tracks (Rea
   next i hi => exact ha.cbrtFast (ha.le_of_cbrtProbe hi)
   next => exact ha.cbrtSlow
 
+theorem Tracks.mono {a : CReal} {x : ℝ} (h : a.Tracks x) {k j : ℕ} (hkj : k ≤ j) :
+    |(a.approx j : ℝ) - x| ≤ ((2 : ℝ) ^ k)⁻¹ :=
+  (h j).trans (inv_anti₀ (by positivity) (pow_le_pow_right₀ (by norm_num) hkj))
+
+theorem Tracks.memo {a : CReal} {x : ℝ} (h : a.Tracks x) : a.memo.Tracks x := by
+  intro k
+  simp only [CReal.memo, Array.getElem?_ofFn]
+  split_ifs with hk
+  · exact h.mono (by simp only [memoStep]; omega)
+  · exact h k
+
 theorem tracks_φ : φ.Tracks Real.goldenRatio := by
   have h := (tracks_ofRat (1 / 2)).mul ((tracks_ofRat 1).add (tracks_ofRat 5).sqrt)
   have e : ((1 / 2 : ℚ) : ℝ) * (((1 : ℚ) : ℝ) + √((5 : ℚ) : ℝ)) = Real.goldenRatio := by
@@ -424,5 +447,6 @@ theorem tracks_rel : Denotable.Rel Tracks where
   sqrt := Tracks.sqrt
   cbrt := Tracks.cbrt
   φ := tracks_φ
+  memo := Tracks.memo
 
 end CReal

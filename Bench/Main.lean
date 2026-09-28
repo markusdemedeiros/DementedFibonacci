@@ -4,9 +4,12 @@ def worker (budgetNs : Nat) : IO UInt32 := do
   let stdout ← IO.getStdout
   let start ← IO.monoNanosNow
   let mut n := 0
+  let mut cache : Machine.Cache CReal := ∅
   repeat
-    if (fibMachineRound n).isNone then
+    let some (r, c) := fibMachineRoundWith cache n | return 1
+    if r < 0 then
       return 1
+    cache := c
     if (← IO.monoNanosNow) - start > budgetNs then
       return 0
     stdout.putStrLn (toString n)

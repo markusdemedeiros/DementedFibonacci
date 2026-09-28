@@ -78,6 +78,13 @@ def cbrt (a : CRealP) : CRealP :=
 
 def φ : CRealP := mul (ofRat (1 / 2)) (add (ofRat 1) (sqrt (ofRat 5)))
 
+def memo (a : CRealP) : CRealP :=
+  let t : Array (Thunk (ℚ × Stats)) := Array.ofFn (n := CReal.memoSize) fun i =>
+    Thunk.mk fun _ => a.approx (CReal.memoStep * (i + 1))
+  ⟨fun k => match t[k / CReal.memoStep]? with
+    | some th => th.get
+    | none => a.approx k, a.ctor⟩
+
 instance : Denotable CRealP where
   add := add
   neg := neg
@@ -87,13 +94,15 @@ instance : Denotable CRealP where
   sqrt := sqrt
   cbrt := cbrt
   φ := φ
+  memo := memo
 
 end CRealP
 
-partial def runCount (s : Machine.State CRealP) (steps : ℕ := 0) : Option CRealP × ℕ :=
-  match s with
-  | .done v => (some v, steps)
-  | s => runCount (Machine.step fibProg s) (steps + 1)
+partial def runCount (p : Machine.State CRealP × Machine.Cache CRealP) (steps : ℕ := 0) :
+    Option CRealP × ℕ :=
+  match p with
+  | (.done v, _) => (some v, steps)
+  | p => runCount (Machine.step fibProg p) (steps + 1)
 
 partial def collatzCounts (n : ℕ) (len odd : ℕ := 0) : ℕ × ℕ :=
   if n ≤ 1 then (len, odd)
@@ -105,7 +114,7 @@ def row (n : ℕ) : IO Unit := do
     throw <| IO.userError s!"machine failed at n = {n}"
   let ms := ((← IO.monoNanosNow) - t₀) / 1000000
   let (len, odd) := collatzCounts n
-  let (some v, steps) := runCount (.eval fibProg ((n : ℤ) - 2) [])
+  let (some v, steps) := runCount (.eval fibProg ((n : ℤ) - 2) [], ∅)
     | throw <| IO.userError s!"machine failed at n = {n}"
   let (_, s) := v.approx 2
   let total := v.ctor + s
