@@ -1,1 +1,5 @@
 import CollatzRecursionSchemes.Scheme
+import CollatzRecursionSchemes.BigStep
+import CollatzRecursionSchemes.Fib
+import CollatzRecursionSchemes.CReal
+import CollatzRecursionSchemes.Machine
