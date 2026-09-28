@@ -4,3 +4,5 @@ import CollatzRecursionSchemes.CReal
 import CollatzRecursionSchemes.Fib
 import CollatzRecursionSchemes.Machine
 import CollatzRecursionSchemes.Scheme
+import CollatzRecursionSchemes.Schemes.Elementary
+import CollatzRecursionSchemes.Schemes.Fibonacci
