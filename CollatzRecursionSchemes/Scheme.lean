@@ -115,7 +115,7 @@ theorem isTotal_iff_Collatz : IsTotalFun s.toFun ↔ CollatzConjecture := by
     · exists 1
     · apply collatzN_of_halts (n := ⟨n + 1, by grind⟩) (Ht _)
   · obtain ⟨fuel, hfuel⟩ := Hc n
-    exact Halts_of_collatzN fuel n hfuel
+    exact halts_of_collatzN fuel n hfuel
 
 /-- Correctness of `s.toFun` is equivalent to the Collatz conjecture. -/
 theorem toFun_eq_spec_iff_collatz {spec : ℕ+ → α} (Hv : s.Valid spec) :

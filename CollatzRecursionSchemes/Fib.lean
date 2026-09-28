@@ -341,13 +341,13 @@ def calls : Exp → ℤ → List ℤ
   | .Recurse f, n => [f.eval n]
   | .Share e, n => calls e n
 
-def HaltsAt (m : ℤ) : Prop := ∃ fuel, CollatzN fuel (m + 2).toNat = some 1
+def HaltsAt (m : ℤ) : Prop := ∃ fuel, collatzN fuel (m + 2).toNat = some 1
 
 theorem haltsAt_of_neg {m : ℤ} (hm : m < 0) : HaltsAt m := by
   exists 1
   by_cases hm : m = -1
-  · simp [hm, CollatzN]
-  · simp [show (m + 2).toNat = 0 by grind, CollatzN, collatz]
+  · simp [hm, collatzN]
+  · simp [show (m + 2).toNat = 0 by grind, collatzN, collatz]
 
 theorem haltsAt_of_calls {m : ℤ} (h : ∀ k ∈ calls fibProg m, HaltsAt k) : HaltsAt m := by
   by_cases hm : m < 0
@@ -356,9 +356,9 @@ theorem haltsAt_of_calls {m : ℤ} (h : ∀ k ∈ calls fibProg m, HaltsAt k) : 
     List.append_nil, List.nil_append, List.cons_append] at h
   split at h
   · obtain ⟨k, H⟩ := h _ List.mem_cons_self
-    exact ⟨k + 1, by unfold CollatzN; grind [collatz]⟩
+    exact ⟨k + 1, by unfold collatzN; grind [collatz]⟩
   · obtain ⟨k, H⟩ := h _ List.mem_cons_self
-    exact ⟨k + 1, by unfold CollatzN; grind [collatz]⟩
+    exact ⟨k + 1, by unfold collatzN; grind [collatz]⟩
 
 theorem calls_haltsAt_of_denote_eq_some {e : Exp} {m : ℤ} {v : ℝ}
     (h : denote fibProg e m = some v) : ∀ k ∈ calls e m, HaltsAt k := by
@@ -382,7 +382,7 @@ theorem calls_haltsAt_of_denote_eq_some {e : Exp} {m : ℤ} {v : ℝ}
 
 theorem halts_of_fibRun_eq_some {n : ℕ+} {v : ℝ} (h : fibRun n = some v) : Halts n := by
   obtain ⟨fuel, hf⟩ := haltsAt_of_calls (calls_haltsAt_of_denote_eq_some h)
-  exact Halts_of_collatzN fuel n (by simpa using hf)
+  exact halts_of_collatzN fuel n (by simpa using hf)
 
 theorem fibRun_eq_toFun_of_halts {n : ℕ+} (h : Halts n) :
     fibRun n = Real.fibScheme.toFun n := by
