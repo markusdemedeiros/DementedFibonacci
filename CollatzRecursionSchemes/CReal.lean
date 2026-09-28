@@ -33,14 +33,35 @@ def pow (a : CReal) (m : ℕ) : CReal :=
 
 def sqrtApprox (q : ℚ) (m : ℕ) : ℚ := (Nat.sqrt ⌊q * (2 ^ m) ^ 2⌋₊ : ℚ) / 2 ^ m
 
-def sqrt (a : CReal) : CReal := ⟨fun k => sqrtApprox (a.approx (2 * k + 2)) (k + 1)⟩
+def probes : List ℕ := [0, 1, 2, 4, 8, 16, 32, 64]
+
+def sqrtSlow (a : CReal) : CReal := ⟨fun k => sqrtApprox (a.approx (2 * k + 2)) (k + 1)⟩
+
+def sqrtFast (a : CReal) (i : ℕ) : CReal := ⟨fun k => sqrtApprox (a.approx (k + i + 1)) (k + 1)⟩
+
+def sqrtProbe (a : CReal) : Option ℕ := probes.find? fun i => 2 / 4 ^ i ≤ a.approx (2 * i)
+
+def sqrt (a : CReal) : CReal :=
+  match a.sqrtProbe with
+  | some i => a.sqrtFast i
+  | none => a.sqrtSlow
 
 def icbrt (z : ℤ) : ℤ :=
   if 0 ≤ z then Nat.nthRoot 3 z.toNat else -((Nat.nthRoot 3 (-z - 1).toNat : ℤ) + 1)
 
 def cbrtApprox (q : ℚ) (m : ℕ) : ℚ := (icbrt ⌊q * (2 ^ m) ^ 3⌋ : ℚ) / 2 ^ m
 
-def cbrt (a : CReal) : CReal := ⟨fun k => cbrtApprox (a.approx (3 * k + 5)) (k + 1)⟩
+def cbrtSlow (a : CReal) : CReal := ⟨fun k => cbrtApprox (a.approx (3 * k + 5)) (k + 1)⟩
+
+def cbrtFast (a : CReal) (i : ℕ) : CReal :=
+  ⟨fun k => cbrtApprox (a.approx (k + 2 * i + 2)) (k + 1)⟩
+
+def cbrtProbe (a : CReal) : Option ℕ := probes.find? fun i => 2 / 8 ^ i ≤ |a.approx (3 * i)|
+
+def cbrt (a : CReal) : CReal :=
+  match a.cbrtProbe with
+  | some i => a.cbrtFast i
+  | none => a.cbrtSlow
 
 def φ : CReal := mul (ofRat (1 / 2)) (add (ofRat 1) (sqrt (ofRat 5)))
 
@@ -55,8 +76,7 @@ instance : Denotable CReal where
   φ := φ
 
 theorem Tracks.abs_le_bound {a : CReal} {x : ℝ} (h : a.Tracks x) : |x| ≤ a.bound := by
-  have h0 := h 0
-  rw [pow_zero, inv_one] at h0
+  have h0 : |(a.approx 0 : ℝ) - x| ≤ 1 := by simpa using h 0
   have hc : |(a.approx 0 : ℝ)| ≤ ⌈|a.approx 0|⌉₊ := by exact_mod_cast Nat.le_ceil _
   have := abs_sub_abs_le_abs_sub x (a.approx 0 : ℝ)
   rw [abs_sub_comm] at this
@@ -73,6 +93,24 @@ theorem two_pow_add_inv (k s : ℕ) : (2 : ℝ) ^ s * ((2 : ℝ) ^ (k + s))⁻¹
   rw [pow_add]
   field_simp
 
+theorem inv_two_pow_succ_add (k : ℕ) :
+    ((2 : ℝ) ^ (k + 1))⁻¹ + ((2 : ℝ) ^ (k + 1))⁻¹ = ((2 : ℝ) ^ k)⁻¹ := by
+  rw [pow_succ]
+  ring
+
+theorem abs_sub_le_of_halves {r y z : ℝ} {k : ℕ} (h₁ : |r - y| ≤ ((2 : ℝ) ^ (k + 1))⁻¹)
+    (h₂ : |y - z| ≤ ((2 : ℝ) ^ (k + 1))⁻¹) : |r - z| ≤ ((2 : ℝ) ^ k)⁻¹ := by
+  rw [← inv_two_pow_succ_add]
+  exact (abs_sub_le r y z).trans (add_le_add h₁ h₂)
+
+theorem inv_two_pow_sq (i : ℕ) : (((2 : ℝ) ^ i)⁻¹) ^ 2 = ((4 : ℝ) ^ i)⁻¹ := by
+  rw [inv_pow, ← pow_mul, mul_comm, pow_mul]
+  norm_num
+
+theorem inv_two_pow_cube (i : ℕ) : (((2 : ℝ) ^ i)⁻¹) ^ 3 = ((8 : ℝ) ^ i)⁻¹ := by
+  rw [inv_pow, ← pow_mul, mul_comm, pow_mul]
+  norm_num
+
 theorem tracks_ofRat (q : ℚ) : (ofRat q).Tracks q := by
   intro k
   simp only [ofRat, sub_self, abs_zero]
@@ -88,11 +126,11 @@ theorem Tracks.add {a b : CReal} {x y : ℝ} (ha : a.Tracks x) (hb : b.Tracks y)
     (a.add b).Tracks (x + y) := by
   intro k
   simp only [CReal.add, Rat.cast_add]
+  rw [← inv_two_pow_succ_add]
   calc |(a.approx (k + 1) : ℝ) + b.approx (k + 1) - (x + y)|
       = |((a.approx (k + 1) : ℝ) - x) + ((b.approx (k + 1) : ℝ) - y)| := by ring_nf
     _ ≤ |(a.approx (k + 1) : ℝ) - x| + |(b.approx (k + 1) : ℝ) - y| := abs_add_le _ _
     _ ≤ ((2 : ℝ) ^ (k + 1))⁻¹ + ((2 : ℝ) ^ (k + 1))⁻¹ := add_le_add (ha _) (hb _)
-    _ = ((2 : ℝ) ^ k)⁻¹ := by rw [pow_succ]; ring
 
 theorem Tracks.mul {a b : CReal} {x y : ℝ} (ha : a.Tracks x) (hb : b.Tracks y) :
     (a.mul b).Tracks (x * y) := by
@@ -137,70 +175,115 @@ theorem Tracks.pow {a : CReal} {x : ℝ} (ha : a.Tracks x) (m : ℕ) : (a.pow m)
     _ = ((2 : ℝ) ^ k)⁻¹ := two_pow_add_inv k s
 
 theorem sqrtApprox_spec (q : ℚ) (m : ℕ) :
-    0 ≤ sqrtApprox q m ∧ q < (sqrtApprox q m + (2 ^ m)⁻¹) ^ 2 ∧
-      (sqrtApprox q m = 0 ∨ sqrtApprox q m ^ 2 ≤ q) := by
+    0 ≤ sqrtApprox q m ∧ (sqrtApprox q m = 0 ∨ sqrtApprox q m ^ 2 ≤ q) ∧
+      q < (sqrtApprox q m + (2 ^ m)⁻¹) ^ 2 := by
   set N := ⌊q * (2 ^ m) ^ 2⌋₊
-  have h2 : (0 : ℚ) < 2 ^ m := by positivity
   have hr : sqrtApprox q m = (N.sqrt : ℚ) / 2 ^ m := rfl
   refine ⟨by rw [hr]; positivity, ?_, ?_⟩
-  · have h1 : q * (2 ^ m) ^ 2 < N + 1 := Nat.lt_floor_add_one _
-    have h3 : ((N + 1 : ℕ) : ℚ) ≤ ((N.sqrt + 1 : ℕ) : ℚ) ^ 2 := by
-      exact_mod_cast Nat.lt_succ_sqrt' N
-    rw [hr, show (N.sqrt : ℚ) / 2 ^ m + (2 ^ m)⁻¹ = (N.sqrt + 1) / 2 ^ m by field_simp, div_pow,
-      lt_div_iff₀ (by positivity)]
-    push_cast at h3
-    linarith
   · by_cases hq : 0 ≤ q
     · right
-      have h1 : (N : ℚ) ≤ q * (2 ^ m) ^ 2 := Nat.floor_le (by positivity)
-      have h3 : ((N.sqrt : ℕ) : ℚ) ^ 2 ≤ N := by exact_mod_cast Nat.sqrt_le' N
       rw [hr, div_pow, div_le_iff₀ (by positivity)]
-      linarith
+      calc ((N.sqrt : ℕ) : ℚ) ^ 2 ≤ N := by exact_mod_cast Nat.sqrt_le' N
+        _ ≤ q * (2 ^ m) ^ 2 := Nat.floor_le (by positivity)
     · left
       have hN : N = 0 := Nat.floor_of_nonpos (by nlinarith)
       rw [hr, hN]
       simp
+  · rw [hr, show (N.sqrt : ℚ) / 2 ^ m + (2 ^ m)⁻¹ = (N.sqrt + 1) / 2 ^ m by field_simp, div_pow,
+      lt_div_iff₀ (by positivity)]
+    calc q * (2 ^ m) ^ 2 < N + 1 := Nat.lt_floor_add_one _
+      _ ≤ ((N.sqrt + 1 : ℕ) : ℚ) ^ 2 := by exact_mod_cast Nat.lt_succ_sqrt' N
+      _ = ((N.sqrt : ℚ) + 1) ^ 2 := by push_cast; ring
+
+theorem sqrtApprox_near (q : ℚ) (m : ℕ) :
+    |(sqrtApprox q m : ℝ) - √(q : ℝ)| ≤ ((2 : ℝ) ^ m)⁻¹ := by
+  obtain ⟨h0, hor, hlt⟩ := sqrtApprox_spec q m
+  set r := sqrtApprox q m
+  have h0' : (0 : ℝ) ≤ r := by exact_mod_cast h0
+  have lower : (r : ℝ) ≤ √(q : ℝ) := by
+    rcases hor with hr | hr
+    · simp [hr]
+    · have hr' := (Rat.cast_le (K := ℝ)).mpr hr
+      push_cast at hr'
+      calc (r : ℝ) = √((r : ℝ) ^ 2) := (Real.sqrt_sq h0').symm
+        _ ≤ √(q : ℝ) := Real.sqrt_le_sqrt hr'
+  have upper : √(q : ℝ) ≤ r + ((2 : ℝ) ^ m)⁻¹ := by
+    have hlt' := (Rat.cast_le (K := ℝ)).mpr hlt.le
+    push_cast at hlt'
+    exact Real.sqrt_le_iff.mpr ⟨by positivity, hlt'⟩
+  have hh : (0 : ℝ) ≤ ((2 : ℝ) ^ m)⁻¹ := by positivity
+  exact abs_sub_le_iff.mpr ⟨by linarith, by linarith⟩
+
+theorem abs_sqrt_sub_sqrt_mul_add (q x : ℝ) : |√q - √x| * (√q + √x) ≤ |q - x| :=
+  calc |√q - √x| * (√q + √x) = |√q ^ 2 - √x ^ 2| := by
+        rw [← abs_of_nonneg (by positivity : 0 ≤ √q + √x), ← abs_mul]
+        ring_nf
+    _ = |max q 0 - max x 0| := by rw [Real.sq_sqrt', Real.sq_sqrt']
+    _ ≤ |q - x| := abs_max_sub_max_le_abs _ _ _
+
+theorem sq_abs_sqrt_sub_sqrt_le (q x : ℝ) : |√q - √x| ^ 2 ≤ |q - x| := by
+  have hq := Real.sqrt_nonneg q
+  have hx := Real.sqrt_nonneg x
+  calc |√q - √x| ^ 2 = |√q - √x| * |√q - √x| := sq _
+    _ ≤ |√q - √x| * (√q + √x) := by
+      gcongr
+      exact abs_sub_le_iff.mpr ⟨by linarith, by linarith⟩
+    _ ≤ |q - x| := abs_sqrt_sub_sqrt_mul_add q x
+
+theorem abs_sqrt_sub_sqrt_mul_le (q x : ℝ) : |√q - √x| * √x ≤ |q - x| :=
+  calc |√q - √x| * √x ≤ |√q - √x| * (√q + √x) := by
+        gcongr
+        linarith [Real.sqrt_nonneg q]
+    _ ≤ |q - x| := abs_sqrt_sub_sqrt_mul_add q x
+
+theorem Tracks.sqrtSlow {a : CReal} {x : ℝ} (ha : a.Tracks x) : a.sqrtSlow.Tracks √x := by
+  intro k
+  apply abs_sub_le_of_halves (sqrtApprox_near (a.approx (2 * k + 2)) (k + 1))
+  have hq : |(a.approx (2 * k + 2) : ℝ) - x| ≤ (((2 : ℝ) ^ (k + 1))⁻¹) ^ 2 := by
+    rw [show (((2 : ℝ) ^ (k + 1))⁻¹) ^ 2 = ((2 : ℝ) ^ (2 * k + 2))⁻¹ by ring]
+    exact ha _
+  rw [← pow_le_pow_iff_left₀ (abs_nonneg _) (by positivity) two_ne_zero]
+  exact (sq_abs_sqrt_sub_sqrt_le _ _).trans hq
+
+theorem Tracks.sqrtFast {a : CReal} {x : ℝ} {i : ℕ} (ha : a.Tracks x) (hx : ((4 : ℝ) ^ i)⁻¹ ≤ x) :
+    (a.sqrtFast i).Tracks √x := by
+  intro k
+  apply abs_sub_le_of_halves (sqrtApprox_near (a.approx (k + i + 1)) (k + 1))
+  have hsx : ((2 : ℝ) ^ i)⁻¹ ≤ √x := Real.le_sqrt_of_sq_le ((inv_two_pow_sq i).trans_le hx)
+  refine le_of_mul_le_mul_right ?_ (lt_of_lt_of_le (by positivity) hsx)
+  calc |√(a.approx (k + i + 1) : ℝ) - √x| * √x ≤ |(a.approx (k + i + 1) : ℝ) - x| :=
+        abs_sqrt_sub_sqrt_mul_le _ _
+    _ ≤ ((2 : ℝ) ^ (k + i + 1))⁻¹ := ha _
+    _ = ((2 : ℝ) ^ (k + 1))⁻¹ * ((2 : ℝ) ^ i)⁻¹ := by rw [← mul_inv, ← pow_add]; ring_nf
+    _ ≤ ((2 : ℝ) ^ (k + 1))⁻¹ * √x := by gcongr
+
+theorem Tracks.le_of_sqrtProbe {a : CReal} {x : ℝ} {i : ℕ} (ha : a.Tracks x)
+    (h : a.sqrtProbe = some i) : ((4 : ℝ) ^ i)⁻¹ ≤ x := by
+  have hp : 2 / 4 ^ i ≤ a.approx (2 * i) := by
+    unfold sqrtProbe at h
+    simpa using List.find?_some h
+  have hp' : 2 * ((4 : ℝ) ^ i)⁻¹ ≤ a.approx (2 * i) := by
+    have := (Rat.cast_le (K := ℝ)).mpr hp
+    push_cast at this
+    rwa [div_eq_mul_inv] at this
+  have hx : (a.approx (2 * i) : ℝ) - x ≤ ((4 : ℝ) ^ i)⁻¹ := by
+    have := (abs_sub_le_iff.mp (ha (2 * i))).1
+    rwa [pow_mul, show (2 : ℝ) ^ 2 = 4 by norm_num] at this
+  linarith
 
 theorem Tracks.sqrt {a : CReal} {x : ℝ} (ha : a.Tracks x) : a.sqrt.Tracks √x := by
-  intro k
-  simp only [CReal.sqrt]
-  obtain ⟨h0, hlt, hor⟩ := sqrtApprox_spec (a.approx (2 * k + 2)) (k + 1)
-  have hq := ha (2 * k + 2)
-  have hlt' := (Rat.cast_lt (K := ℝ)).mpr hlt
-  push_cast at hlt'
-  rw [show ((2 : ℝ) ^ (2 * k + 2))⁻¹ = (((2 : ℝ) ^ (k + 1))⁻¹) ^ 2 by ring] at hq
-  set r := sqrtApprox (a.approx (2 * k + 2)) (k + 1)
-  set q := a.approx (2 * k + 2)
-  set h : ℝ := ((2 : ℝ) ^ (k + 1))⁻¹
-  have hh : 0 < h := by positivity
-  have hk : ((2 : ℝ) ^ k)⁻¹ = 2 * h := by simp only [h, pow_succ]; field_simp
-  have h0' : (0 : ℝ) ≤ r := by exact_mod_cast h0
-  rw [abs_sub_le_iff] at hq ⊢
-  rw [hk]
-  constructor
-  · rcases hor with hr | hr
-    · rw [hr]
-      push_cast
-      linarith [Real.sqrt_nonneg x]
-    · have hr' : (r : ℝ) ^ 2 ≤ q := by exact_mod_cast hr
-      by_cases hr2 : (r : ℝ) ≤ 2 * h
-      · linarith [Real.sqrt_nonneg x]
-      · have : (r : ℝ) - 2 * h ≤ √x := (Real.le_sqrt' (by linarith)).mpr <| by
-          nlinarith [mul_pos hh (sub_pos.mpr (not_le.mp hr2))]
-        linarith
-  · have : √x ≤ r + 2 * h := Real.sqrt_le_iff.mpr ⟨by linarith, by nlinarith⟩
-    linarith
+  unfold CReal.sqrt
+  split
+  next i hi => exact ha.sqrtFast (ha.le_of_sqrtProbe hi)
+  next => exact ha.sqrtSlow
 
 theorem icbrt_spec (z : ℤ) : icbrt z ^ 3 ≤ z ∧ z < (icbrt z + 1) ^ 3 := by
   unfold icbrt
   split_ifs with hz
-  · have h1 : Nat.nthRoot 3 z.toNat ^ 3 ≤ z.toNat := Nat.pow_nthRoot_le (.inl (by norm_num))
-    have h2 : z.toNat < (Nat.nthRoot 3 z.toNat + 1) ^ 3 :=
-      Nat.lt_pow_nthRoot_add_one (by norm_num) _
-    have hz' : (z.toNat : ℤ) = z := Int.toNat_of_nonneg hz
-    constructor
-    · rw [← hz']; exact_mod_cast h1
-    · rw [← hz']; exact_mod_cast h2
+  · have hz' : (z.toNat : ℤ) = z := Int.toNat_of_nonneg hz
+    rw [← hz']
+    exact ⟨by exact_mod_cast Nat.pow_nthRoot_le (.inl (by norm_num)),
+      by exact_mod_cast Nat.lt_pow_nthRoot_add_one (by norm_num) _⟩
   · set M := (-z - 1).toNat
     have hM : (M : ℤ) = -z - 1 := Int.toNat_of_nonneg (by omega)
     have h1 : ((Nat.nthRoot 3 M ^ 3 : ℕ) : ℤ) ≤ M := by
@@ -216,41 +299,112 @@ theorem cbrtApprox_spec (q : ℚ) (m : ℕ) :
     cbrtApprox q m ^ 3 ≤ q ∧ q < (cbrtApprox q m + (2 ^ m)⁻¹) ^ 3 := by
   set z := ⌊q * (2 ^ m) ^ 3⌋
   obtain ⟨h1, h2⟩ := icbrt_spec z
-  have h3 : (z : ℚ) ≤ q * (2 ^ m) ^ 3 := Int.floor_le _
-  have h4 : q * (2 ^ m) ^ 3 < z + 1 := Int.lt_floor_add_one _
-  have h1' : ((icbrt z : ℚ)) ^ 3 ≤ z := by exact_mod_cast h1
-  have h2' : (z : ℚ) + 1 ≤ ((icbrt z : ℚ) + 1) ^ 3 := by exact_mod_cast h2
   have hr : cbrtApprox q m = (icbrt z : ℚ) / 2 ^ m := rfl
   constructor
   · rw [hr, div_pow, div_le_iff₀ (by positivity)]
-    linarith
+    calc ((icbrt z : ℚ)) ^ 3 ≤ z := by exact_mod_cast h1
+      _ ≤ q * (2 ^ m) ^ 3 := Int.floor_le _
   · rw [hr, show (icbrt z : ℚ) / 2 ^ m + (2 ^ m)⁻¹ = (icbrt z + 1) / 2 ^ m by field_simp,
       div_pow, lt_div_iff₀ (by positivity)]
+    calc q * (2 ^ m) ^ 3 < z + 1 := Int.lt_floor_add_one _
+      _ ≤ ((icbrt z : ℚ) + 1) ^ 3 := by exact_mod_cast h2
+
+theorem cbrtApprox_near (q : ℚ) (m : ℕ) :
+    |(cbrtApprox q m : ℝ) - Real.cbrt (q : ℝ)| ≤ ((2 : ℝ) ^ m)⁻¹ := by
+  obtain ⟨hle, hlt⟩ := cbrtApprox_spec q m
+  have hle' := (Rat.cast_le (K := ℝ)).mpr hle
+  have hlt' := (Rat.cast_le (K := ℝ)).mpr hlt.le
+  push_cast at hle' hlt'
+  have lower := Real.le_cbrt_iff.mpr hle'
+  have upper := Real.cbrt_le_iff.mpr hlt'
+  have hh : (0 : ℝ) ≤ ((2 : ℝ) ^ m)⁻¹ := by positivity
+  exact abs_sub_le_iff.mpr ⟨by linarith, by linarith⟩
+
+theorem abs_cbrt_sub_cbrt_mul (q x : ℝ) :
+    |Real.cbrt q - Real.cbrt x| *
+      (Real.cbrt q ^ 2 + Real.cbrt q * Real.cbrt x + Real.cbrt x ^ 2) = |q - x| := by
+  conv_rhs => rw [← Real.cbrt_pow_three q, ← Real.cbrt_pow_three x]
+  set a := Real.cbrt q
+  set b := Real.cbrt x
+  rw [show a ^ 3 - b ^ 3 = (a - b) * (a ^ 2 + a * b + b ^ 2) by ring, abs_mul,
+    abs_of_nonneg (by nlinarith [sq_nonneg (a + b / 2), sq_nonneg b] :
+      (0 : ℝ) ≤ a ^ 2 + a * b + b ^ 2)]
+
+theorem pow_three_abs_cbrt_sub_cbrt_le (q x : ℝ) :
+    |Real.cbrt q - Real.cbrt x| ^ 3 ≤ 4 * |q - x| := by
+  rw [← abs_cbrt_sub_cbrt_mul q x]
+  set a := Real.cbrt q
+  set b := Real.cbrt x
+  calc |a - b| ^ 3 = |a - b| * (a - b) ^ 2 := by rw [pow_succ', sq_abs]
+    _ ≤ |a - b| * (4 * (a ^ 2 + a * b + b ^ 2)) := by
+      gcongr
+      nlinarith [sq_nonneg (a + b)]
+    _ = 4 * (|a - b| * (a ^ 2 + a * b + b ^ 2)) := by ring
+
+theorem abs_cbrt_sub_cbrt_mul_le {q x : ℝ} {i : ℕ} (hx : ((8 : ℝ) ^ i)⁻¹ ≤ |x|) :
+    |Real.cbrt q - Real.cbrt x| * (3 / 4 * ((4 : ℝ) ^ i)⁻¹) ≤ |q - x| := by
+  rw [← abs_cbrt_sub_cbrt_mul q x]
+  have hxb := Real.cbrt_pow_three x
+  set a := Real.cbrt q
+  set b := Real.cbrt x
+  have hb : ((2 : ℝ) ^ i)⁻¹ ≤ |b| := by
+    rw [← pow_le_pow_iff_left₀ (by positivity) (abs_nonneg b) three_ne_zero, ← abs_pow, hxb,
+      inv_two_pow_cube]
+    exact hx
+  have hb2 : ((4 : ℝ) ^ i)⁻¹ ≤ b ^ 2 :=
+    calc ((4 : ℝ) ^ i)⁻¹ = (((2 : ℝ) ^ i)⁻¹) ^ 2 := (inv_two_pow_sq i).symm
+      _ ≤ |b| ^ 2 := by gcongr
+      _ = b ^ 2 := sq_abs b
+  gcongr
+  nlinarith [sq_nonneg (a + b / 2)]
+
+theorem Tracks.cbrtSlow {a : CReal} {x : ℝ} (ha : a.Tracks x) :
+    a.cbrtSlow.Tracks (Real.cbrt x) := by
+  intro k
+  apply abs_sub_le_of_halves (cbrtApprox_near (a.approx (3 * k + 5)) (k + 1))
+  have hq : 4 * |(a.approx (3 * k + 5) : ℝ) - x| ≤ (((2 : ℝ) ^ (k + 1))⁻¹) ^ 3 := by
+    have := ha (3 * k + 5)
+    rw [show ((2 : ℝ) ^ (3 * k + 5))⁻¹ = (((2 : ℝ) ^ (k + 1))⁻¹) ^ 3 / 4 by ring] at this
     linarith
+  rw [← pow_le_pow_iff_left₀ (abs_nonneg _) (by positivity) three_ne_zero]
+  exact (pow_three_abs_cbrt_sub_cbrt_le _ _).trans hq
+
+theorem Tracks.cbrtFast {a : CReal} {x : ℝ} {i : ℕ} (ha : a.Tracks x)
+    (hx : ((8 : ℝ) ^ i)⁻¹ ≤ |x|) : (a.cbrtFast i).Tracks (Real.cbrt x) := by
+  intro k
+  apply abs_sub_le_of_halves (cbrtApprox_near (a.approx (k + 2 * i + 2)) (k + 1))
+  refine le_of_mul_le_mul_right ?_ (by positivity : (0 : ℝ) < 3 / 4 * ((4 : ℝ) ^ i)⁻¹)
+  calc |Real.cbrt (a.approx (k + 2 * i + 2)) - Real.cbrt x| * (3 / 4 * ((4 : ℝ) ^ i)⁻¹)
+      ≤ |(a.approx (k + 2 * i + 2) : ℝ) - x| := abs_cbrt_sub_cbrt_mul_le hx
+    _ ≤ ((2 : ℝ) ^ (k + 2 * i + 2))⁻¹ := ha _
+    _ = ((2 : ℝ) ^ (k + 1))⁻¹ * (1 / 2 * ((4 : ℝ) ^ i)⁻¹) := by
+      rw [show (4 : ℝ) = 2 ^ 2 by norm_num, ← pow_mul]
+      field_simp
+      ring
+    _ ≤ ((2 : ℝ) ^ (k + 1))⁻¹ * (3 / 4 * ((4 : ℝ) ^ i)⁻¹) := by
+      gcongr _ * (?_ * _)
+      norm_num
+
+theorem Tracks.le_of_cbrtProbe {a : CReal} {x : ℝ} {i : ℕ} (ha : a.Tracks x)
+    (h : a.cbrtProbe = some i) : ((8 : ℝ) ^ i)⁻¹ ≤ |x| := by
+  have hp : 2 / 8 ^ i ≤ |a.approx (3 * i)| := by
+    unfold cbrtProbe at h
+    simpa using List.find?_some h
+  have hp' : 2 * ((8 : ℝ) ^ i)⁻¹ ≤ |(a.approx (3 * i) : ℝ)| := by
+    have := (Rat.cast_le (K := ℝ)).mpr hp
+    push_cast at this
+    rwa [div_eq_mul_inv] at this
+  have hx : |(a.approx (3 * i) : ℝ) - x| ≤ ((8 : ℝ) ^ i)⁻¹ := by
+    have := ha (3 * i)
+    rwa [pow_mul, show (2 : ℝ) ^ 3 = 8 by norm_num] at this
+  have := abs_sub_abs_le_abs_sub (a.approx (3 * i) : ℝ) x
+  linarith
 
 theorem Tracks.cbrt {a : CReal} {x : ℝ} (ha : a.Tracks x) : a.cbrt.Tracks (Real.cbrt x) := by
-  intro k
-  simp only [CReal.cbrt]
-  obtain ⟨hle, hlt⟩ := cbrtApprox_spec (a.approx (3 * k + 5)) (k + 1)
-  have hq := ha (3 * k + 5)
-  have hlt' := (Rat.cast_lt (K := ℝ)).mpr hlt
-  have hle' := (Rat.cast_le (K := ℝ)).mpr hle
-  push_cast at hlt' hle'
-  rw [show ((2 : ℝ) ^ (3 * k + 5))⁻¹ = (((2 : ℝ) ^ (k + 1))⁻¹) ^ 3 / 4 by ring] at hq
-  set r := cbrtApprox (a.approx (3 * k + 5)) (k + 1)
-  set q := a.approx (3 * k + 5)
-  set h : ℝ := ((2 : ℝ) ^ (k + 1))⁻¹
-  have hh : 0 < h := by positivity
-  have hk : ((2 : ℝ) ^ k)⁻¹ = 2 * h := by simp only [h, pow_succ]; field_simp
-  rw [abs_sub_le_iff] at hq ⊢
-  rw [hk]
-  constructor
-  · have : (r : ℝ) - 2 * h ≤ Real.cbrt x := Real.le_cbrt_iff.mpr <| by
-      nlinarith [mul_nonneg hh.le (sq_nonneg ((r : ℝ) - h)), pow_pos hh 3]
-    linarith
-  · have : Real.cbrt x ≤ r + 2 * h := Real.cbrt_le_iff.mpr <| by
-      nlinarith [mul_nonneg hh.le (sq_nonneg ((r : ℝ) + 3 * h / 2)), pow_pos hh 3]
-    linarith
+  unfold CReal.cbrt
+  split
+  next i hi => exact ha.cbrtFast (ha.le_of_cbrtProbe hi)
+  next => exact ha.cbrtSlow
 
 theorem tracks_φ : φ.Tracks Real.goldenRatio := by
   have h := (tracks_ofRat (1 / 2)).mul ((tracks_ofRat 1).add (tracks_ofRat 5).sqrt)

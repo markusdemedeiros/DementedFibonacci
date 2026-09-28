@@ -47,17 +47,34 @@ def pow (a : CRealP) (m : ℕ) : CRealP :=
     let (x, s₁) := a.approx (k + s)
     (x ^ m, s₁ + tick k (x ^ m)), a.ctor + sa⟩
 
+def probe (a : CRealP) (d : ℕ) (ok : ℕ → ℚ → Bool) : Option ℕ × Stats :=
+  go CReal.probes {}
+where
+  go : List ℕ → Stats → Option ℕ × Stats
+    | [], s => (none, s)
+    | i :: is, s =>
+      let (x, s') := a.approx (d * i)
+      if ok i x then (some i, s + s') else go is (s + s')
+
 def sqrt (a : CRealP) : CRealP :=
+  let (p, sp) := a.probe 2 fun i x => 2 / 4 ^ i ≤ x
+  let prec := match p with
+    | some i => fun k => k + i + 1
+    | none => fun k => 2 * k + 2
   ⟨fun k =>
-    let (x, s) := a.approx (2 * k + 2)
+    let (x, s) := a.approx (prec k)
     let r := CReal.sqrtApprox x (k + 1)
-    (r, s + tick k r), a.ctor⟩
+    (r, s + tick k r), a.ctor + sp⟩
 
 def cbrt (a : CRealP) : CRealP :=
+  let (p, sp) := a.probe 3 fun i x => 2 / 8 ^ i ≤ |x|
+  let prec := match p with
+    | some i => fun k => k + 2 * i + 2
+    | none => fun k => 3 * k + 5
   ⟨fun k =>
-    let (x, s) := a.approx (3 * k + 5)
+    let (x, s) := a.approx (prec k)
     let r := CReal.cbrtApprox x (k + 1)
-    (r, s + tick k r), a.ctor⟩
+    (r, s + tick k r), a.ctor + sp⟩
 
 def φ : CRealP := mul (ofRat (1 / 2)) (add (ofRat 1) (sqrt (ofRat 5)))
 
