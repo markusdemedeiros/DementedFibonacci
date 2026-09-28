@@ -1,0 +1,104 @@
+import CollatzRecursionSchemes.Machine
+
+structure Stats where
+  queries : Nat := 0
+  maxPrec : Nat := 0
+  maxBits : Nat := 0
+
+instance : Add Stats where
+  add a b := ⟨a.queries + b.queries, max a.maxPrec b.maxPrec, max a.maxBits b.maxBits⟩
+
+def tick (k : ℕ) (q : ℚ) : Stats := ⟨1, k, q.num.natAbs.log2 + q.den.log2⟩
+
+structure CRealP where
+  approx : ℕ → ℚ × Stats
+  ctor : Stats := {}
+
+namespace CRealP
+
+def ofRat (q : ℚ) : CRealP := ⟨fun k => (q, tick k q), {}⟩
+
+def neg (a : CRealP) : CRealP :=
+  ⟨fun k => let (x, s) := a.approx k; (-x, s + tick k (-x)), a.ctor⟩
+
+def add (a b : CRealP) : CRealP :=
+  ⟨fun k =>
+    let (x, s₁) := a.approx (k + 1)
+    let (y, s₂) := b.approx (k + 1)
+    (x + y, s₁ + s₂ + tick k (x + y)), a.ctor + b.ctor⟩
+
+def bound (a : CRealP) : ℕ × Stats :=
+  let (x, s) := a.approx 0
+  (⌈|x|⌉₊ + 1, s)
+
+def mul (a b : CRealP) : CRealP :=
+  let (ba, sa) := a.bound
+  let (bb, sb) := b.bound
+  let s := (ba + bb).size
+  ⟨fun k =>
+    let (x, s₁) := a.approx (k + s)
+    let (y, s₂) := b.approx (k + s)
+    (x * y, s₁ + s₂ + tick k (x * y)), a.ctor + b.ctor + sa + sb⟩
+
+def pow (a : CRealP) (m : ℕ) : CRealP :=
+  let (ba, sa) := a.bound
+  let s := (m * (ba + 1) ^ (m - 1)).size
+  ⟨fun k =>
+    let (x, s₁) := a.approx (k + s)
+    (x ^ m, s₁ + tick k (x ^ m)), a.ctor + sa⟩
+
+def sqrt (a : CRealP) : CRealP :=
+  ⟨fun k =>
+    let (x, s) := a.approx (2 * k + 2)
+    let r := CReal.sqrtApprox x (k + 1)
+    (r, s + tick k r), a.ctor⟩
+
+def cbrt (a : CRealP) : CRealP :=
+  ⟨fun k =>
+    let (x, s) := a.approx (3 * k + 5)
+    let r := CReal.cbrtApprox x (k + 1)
+    (r, s + tick k r), a.ctor⟩
+
+def φ : CRealP := mul (ofRat (1 / 2)) (add (ofRat 1) (sqrt (ofRat 5)))
+
+instance : Denotable CRealP where
+  add := add
+  neg := neg
+  mul := mul
+  pow := pow
+  ofRat := ofRat
+  sqrt := sqrt
+  cbrt := cbrt
+  φ := φ
+
+end CRealP
+
+partial def runCount (s : Machine.State CRealP) (steps : ℕ := 0) : Option CRealP × ℕ :=
+  match s with
+  | .done v => (some v, steps)
+  | s => runCount (Machine.step fibProg s) (steps + 1)
+
+partial def collatzCounts (n : ℕ) (len odd : ℕ := 0) : ℕ × ℕ :=
+  if n ≤ 1 then (len, odd)
+  else collatzCounts (collatz n) (len + 1) (if n % 2 = 1 then odd + 1 else odd)
+
+def row (n : ℕ) : IO Unit := do
+  let t₀ ← IO.monoNanosNow
+  if (fibMachineRound n).isNone then
+    throw <| IO.userError s!"machine failed at n = {n}"
+  let ms := ((← IO.monoNanosNow) - t₀) / 1000000
+  let (len, odd) := collatzCounts n
+  let (some v, steps) := runCount (.eval fibProg ((n : ℤ) - 2) [])
+    | throw <| IO.userError s!"machine failed at n = {n}"
+  let (_, s) := v.approx 2
+  let total := v.ctor + s
+  IO.println s!"{n}\t{len}\t{odd}\t{steps}\t{total.queries}\t{total.maxPrec}\t{total.maxBits}\t{ms}"
+  (← IO.getStdout).flush
+
+def main (args : List String) : IO Unit := do
+  let maxN := match args with
+    | [m] => m.toNat!
+    | _ => 8
+  IO.println "n\tpath\todd\tsteps\tqueries\tmaxPrec\tmaxBits\tms"
+  for n in [0:maxN + 1] do
+    row n

@@ -2,6 +2,8 @@ module
 
 public import CollatzRecursionSchemes.CReal
 public import CollatzRecursionSchemes.Fib
+meta import CollatzRecursionSchemes.CReal
+meta import CollatzRecursionSchemes.Fib
 
 set_option linter.style.header false
 

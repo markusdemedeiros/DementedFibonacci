@@ -17,3 +17,11 @@ rev = "v4.33.0"
 [[lean_lib]]
 name = "CollatzRecursionSchemes"
 supportInterpreter = true
+
+[[lean_exe]]
+name = "bench"
+root = "Bench.Main"
+
+[[lean_exe]]
+name = "profile"
+root = "Bench.Profile"
